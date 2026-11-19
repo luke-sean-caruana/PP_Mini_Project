@@ -1,15 +1,23 @@
 import java.awt.* ;
 import javax.swing.* ;
 
+import java.util.Random;
+import java.util.Scanner;
+
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 
 public class ThreadedBriansBrain extends Thread {
 
-    final static int P = 32 ; // Number of threads
+    final static int P = 32 ;          // Number of threads
     final static int N = 1024 ;
     final static int CELL_SIZE = 1 ;
     final static int DELAY = 100 ;
+
+    static boolean BENCH;
+    static long SEED;
+    final static int ITERATIONS = 1000;
+    static Random rng;
 
     // Shared by all P workers
     final static CyclicBarrier barrier = new CyclicBarrier(P);
@@ -17,28 +25,59 @@ public class ThreadedBriansBrain extends Thread {
     static int [][] state = new int [N][N] ;
     static int [][] sums  = new int [N][N] ;
 
-    static Display display = new Display() ;
-  
+    static Display display;
+
+
     public static void main(String args []) throws Exception {
-  
-        // Define initial state of Life board
-        for(int i = N / 4 ; i < (N * 3) / 4 ; i++) {
-            for(int j = N / 4 ; j < (N * 3) / 4 ; j++) {
+
+        Scanner input = new Scanner(System.in);
+        String choice = "";
+
+        while (!choice.equals("b") && !choice.equals("v")) {
+            System.out.print("Bench or visual? (b/v): ");
+            choice = input.nextLine();
+        }
+
+        BENCH = choice.equals("b");
+        SEED = BENCH ? 1L : System.nanoTime();
+        rng  = new Random(SEED);
+
+        input.close();
+
+
+        if (!BENCH) {
+            display = new Display();
+        }
+
+        // Define initial state of board
+        for (int i = 0 ; i < N ; i++) {
+            for (int j = 0 ; j < N ; j++) {
                 state [i] [j] = randomState() ;
             }
         }
-  
-        display.repaint() ;
-        pause() ;
+
+        System.out.println("seed = " + SEED);
+
+        if (!BENCH) {
+            display.repaint() ;
+            pause() ;
+        }
+
+        long start = System.nanoTime();
 
         ThreadedBriansBrain [] threads = new ThreadedBriansBrain[P] ;
-        for(int me = 0 ; me < P ; me++) {
+        for (int me = 0 ; me < P ; me++) {
             threads [me] = new ThreadedBriansBrain(me) ;
             threads [me].start() ;
         }
 
-        for(int me = 0 ; me < P ; me++) {
+        for (int me = 0 ; me < P ; me++) {
             threads [me].join() ;
+        }
+
+        if (BENCH) {
+            double seconds = (System.nanoTime() - start) / 1e9;
+            System.out.println("P = " + P + ", " + ITERATIONS + " iterations: " + seconds + " s");
         }
     }
 
@@ -60,20 +99,20 @@ public class ThreadedBriansBrain extends Thread {
         public void paintComponent(Graphics g) {
             g.setColor(Color.BLACK) ;
             g.fillRect(0, 0, WINDOW_SIZE, WINDOW_SIZE) ;
-            for(int i = 0 ; i < N ; i++) {
-                for(int j = 0 ; j < N ; j++) {
-                    if(state [i] [j] == 100) {
+            for (int i = 0 ; i < N ; i++) {
+                for (int j = 0 ; j < N ; j++) {
+                    if (state [i] [j] == 100) {
                         g.setColor(Color.WHITE) ;
                         g.fillRect(CELL_SIZE * i, CELL_SIZE * j,
-                                    CELL_SIZE, CELL_SIZE) ;
+                                   CELL_SIZE, CELL_SIZE) ;
                     }
-                    else if(state [i] [j] == 1) {
+                    else if (state [i] [j] == 1) {
                         g.setColor(Color.BLUE) ;
                         g.fillRect(CELL_SIZE * i, CELL_SIZE * j,
-                                    CELL_SIZE, CELL_SIZE) ;                        
+                                   CELL_SIZE, CELL_SIZE) ;
                     }
                 }
-            } 
+            }
         }
     }
 
@@ -81,7 +120,7 @@ public class ThreadedBriansBrain extends Thread {
         try {
             Thread.sleep(DELAY) ;
         }
-        catch(InterruptedException e) {
+        catch (InterruptedException e) {
             e.printStackTrace() ;
             System.exit(1) ;
         }
@@ -89,17 +128,17 @@ public class ThreadedBriansBrain extends Thread {
 
     static void synch() {
         try {
-                barrier.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            } catch (BrokenBarrierException e) {
-                return;
-            }
+            barrier.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (BrokenBarrierException e) {
+            // barrier broken: just return
+        }
     }
-    static Integer randomState() {
+
+    static int randomState() {
         int[] states = {0, 1, 100};
-        return states[(int) (Math.random() * 3)];
+        return states[rng.nextInt(3)];
     }
 
     int me ;
@@ -108,25 +147,17 @@ public class ThreadedBriansBrain extends Thread {
         this.me = me ;
     }
 
-    int iter = 0 ;
     public void run() {
-        while(true) {
 
-            if (me == 0) {
-                System.out.println("iter = " + iter++) ;
-            }
+        int begin = me * N / P;
+        int end   = (me + 1) * N / P;
 
-            int begin, end ;
-
-            begin = me * N / P;
-            end = (me + 1) * N / P;
+        for (int iter = 0; !BENCH || iter < ITERATIONS; iter++) {
 
             // Calculate neighbour sums.
+            for (int i = begin ; i < end ; i++) {
+                for (int j = 0 ; j < N ; j++) {
 
-            for(int i = begin ; i < end ; i++) {
-                for(int j = 0 ; j < N ; j++) {
-
-                    // find neighbours...
                     int ip = (i + 1) % N ;
                     int im = (i - 1 + N) % N ;
                     int jp = (j + 1) % N ;
@@ -141,25 +172,25 @@ public class ThreadedBriansBrain extends Thread {
             synch();
 
             // Update state of board values.
-            for(int i = begin ; i < end ; i++) {
-                for(int j = 0 ; j < N ; j++) {
+            for (int i = begin ; i < end ; i++) {
+                for (int j = 0 ; j < N ; j++) {
                     if (state [i] [j] == 100) {
                         state [i] [j] = 1 ;
                     }
                     else if (state [i] [j] == 1) {
                         state [i] [j] = 0 ;
                     }
-
-                    else if (((sums [i] [j] >= 200) && (sums [i] [j] < 300)) && (state [i] [j] == 0)) {
+                    else if (sums [i] [j] >= 200 && sums [i] [j] < 300) {
                         state [i] [j] = 100 ;
-                    } 
+                    }
                 }
             }
             synch();
 
-            if (me == 0) {
-                display.repaint() ;
-                pause() ;
+            if (!BENCH && me == 0) {
+                System.out.println("iter = " + iter);
+                display.repaint();
+                pause();
             }
         }
     }
